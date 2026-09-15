@@ -139,4 +139,4 @@ def health_check() -> dict[str, str]:
         "status": "healthy",
         "service": "user-service",
     }
-# CI trigger: minor change for Week08 CD demo
+# CI trigger: minor change for Week 09 monitoring task

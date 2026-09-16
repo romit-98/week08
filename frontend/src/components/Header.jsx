@@ -31,6 +31,7 @@ const Header = () => {
       sx={{
         width: `calc(100% - ${drawerWidth}px)`,
         ml: `${drawerWidth}px`,
+        backgroundColor: "#00695C",
         zIndex: (theme) =>
           theme.zIndex.drawer + 1,
       }}
@@ -43,7 +44,7 @@ const Header = () => {
             fontWeight: 600,
           }}
         >
-          KoalaTech University
+          KoalaTech University - Welcome CD
         </Typography>
 
         <Box

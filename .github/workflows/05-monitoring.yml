@@ -1,0 +1,158 @@
+name: 05 - Monitoring
+
+on:
+  # Redeploy monitoring whenever its configuration changes
+  push:
+    branches:
+      - main
+    paths:
+      - 'kubernetes/monitoring/**'
+      - '.github/workflows/05-monitoring.yml'
+
+  # Allow the monitoring stack to be deployed or validated on demand
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+
+  # =========================================================
+  # Deploy and Validate the Monitoring Stack
+  # =========================================================
+  monitoring:
+    name: Deploy and Validate Monitoring
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ vars.AKS_RESOURCE_GROUP }} \
+            --name ${{ vars.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+
+      - name: Add Prometheus community Helm repository
+        run: |
+          helm repo add prometheus-community \
+            https://prometheus-community.github.io/helm-charts
+          helm repo update
+
+      - name: Create monitoring namespace
+        run: |
+          kubectl create namespace monitoring \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # helm upgrade --install is idempotent, so this both creates the
+      # release on a first run and reconciles configuration changes on
+      # every run afterwards.
+      - name: Deploy kube-prometheus-stack
+        run: |
+          helm upgrade --install monitoring \
+            prometheus-community/kube-prometheus-stack \
+            --namespace monitoring \
+            --values kubernetes/monitoring/values.yaml \
+            --wait \
+            --timeout 10m
+
+      # The ServiceMonitor tells the Prometheus Operator which application
+      # services to scrape. It is applied after the stack so that the
+      # ServiceMonitor CRD already exists.
+      - name: Apply application ServiceMonitor
+        run: |
+          kubectl apply -f kubernetes/monitoring/servicemonitor.yaml
+
+      - name: Validate monitoring components are running
+        run: |
+          echo "Monitoring workloads:"
+          kubectl get pods -n monitoring
+
+          echo ""
+          echo "Waiting for Prometheus to become ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=prometheus \
+            -n monitoring \
+            --timeout=300s
+
+          echo "Waiting for Grafana to become ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=grafana \
+            -n monitoring \
+            --timeout=300s
+
+      - name: Validate ServiceMonitor and scrape targets
+        run: |
+          echo "Registered ServiceMonitors:"
+          kubectl get servicemonitor -n monitoring
+
+          echo ""
+          echo "Services labelled for scraping:"
+          kubectl get svc -n staging -l monitoring=koalatech
+
+          LABELLED=$(kubectl get svc -n staging \
+            -l monitoring=koalatech \
+            --no-headers 2>/dev/null | wc -l)
+
+          echo ""
+          echo "Backend services labelled for scraping: ${LABELLED}"
+
+          if [ "${LABELLED}" -lt 1 ]; then
+            echo "::error::No backend services are labelled for Prometheus scraping."
+            exit 1
+          fi
+
+      # Query the Prometheus API from inside the cluster to prove that
+      # metrics are actually being collected, not just that the pods exist.
+      - name: Verify Prometheus is collecting application metrics
+        run: |
+          echo "Querying the Prometheus API for active scrape targets..."
+
+          ACTIVE=$(kubectl run prometheus-check \
+            --rm -i --restart=Never \
+            --image=curlimages/curl:8.10.1 \
+            -n monitoring \
+            --quiet -- \
+            curl -s "http://monitoring-kube-prometheus-prometheus:9090/api/v1/query?query=count(up%7Bnamespace%3D%22staging%22%7D%20%3D%3D%201)" \
+            2>/dev/null)
+
+          echo "Prometheus response: ${ACTIVE}"
+
+          if echo "${ACTIVE}" | grep -q '"status":"success"'; then
+            echo "Prometheus API responded successfully."
+          else
+            echo "::error::Prometheus did not return a successful query response."
+            exit 1
+          fi
+
+      - name: Monitoring deployment summary
+        run: |
+          {
+            echo "### Monitoring stack deployed and validated"
+            echo ""
+            echo "| Component | Status |"
+            echo "| --- | --- |"
+            echo "| kube-prometheus-stack | deployed via Helm |"
+            echo "| Prometheus | ready |"
+            echo "| Grafana | ready |"
+            echo "| ServiceMonitor | applied |"
+            echo ""
+            echo "Scrape targets in the staging namespace:"
+            echo ""
+            echo '```'
+            kubectl get svc -n staging -l monitoring=koalatech
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

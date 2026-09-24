@@ -150,4 +150,4 @@ def health_check() -> dict[str, str]:
         "status": "healthy",
         "service": "user-service",
     }
-# CI trigger: minor change for Week 10 monitoring task
+# CI trigger: end-to-end pipeline verification for Task 10.2D

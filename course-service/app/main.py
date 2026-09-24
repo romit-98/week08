@@ -1,6 +1,7 @@
 import logging
 import time
 from contextlib import asynccontextmanager
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from fastapi import FastAPI
 from sqlalchemy.exc import OperationalError
@@ -65,6 +66,16 @@ app = FastAPI(
 
 
 app.include_router(courses.router)
+
+
+# Expose Prometheus metrics on /metrics so that the Prometheus
+# server deployed in the AKS cluster can scrape request counts,
+# request latency and in-progress requests for this service.
+Instrumentator().instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+)
 
 
 @app.get("/", tags=["Health"])

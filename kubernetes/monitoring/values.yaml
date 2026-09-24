@@ -1,0 +1,50 @@
+# Trimmed kube-prometheus-stack values for a 2-node AKS cluster.
+# Persistence is disabled to stay within the per-node disk attach limit.
+
+alertmanager:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    retention: 2h
+    scrapeInterval: 30s
+    # No storageSpec block, so Prometheus uses an emptyDir volume
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 900Mi
+    # Allow Prometheus to discover ServiceMonitors in all namespaces
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+
+grafana:
+  enabled: true
+  adminPassword: KoalaTechGrafana123!
+  persistence:
+    enabled: false
+  service:
+    type: ClusterIP
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi

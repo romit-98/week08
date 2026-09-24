@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.db import Base, engine
 from app.models import User, UserRole
@@ -120,6 +121,16 @@ app.include_router(auth.router)
 app.include_router(users.router)
 
 
+# Expose Prometheus metrics on /metrics so that the Prometheus
+# server deployed in the AKS cluster can scrape request counts,
+# request latency and in-progress requests for this service.
+Instrumentator().instrument(app).expose(
+    app,
+    endpoint="/metrics",
+    include_in_schema=False,
+)
+
+
 @app.get(
     "/",
     tags=["Health"],
@@ -139,4 +150,4 @@ def health_check() -> dict[str, str]:
         "status": "healthy",
         "service": "user-service",
     }
-# CI trigger: minor change for Week 09 monitoring task
+# CI trigger: minor change for Week 10 monitoring task

@@ -1,0 +1,70 @@
+name: 00 - Infrastructure (Terraform)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/00-infrastructure.yml'
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Run terraform apply after plan'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    name: Validate and Plan Infrastructure
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+
+    env:
+      ARM_USE_AZUREAD: true
+      TF_VAR_resource_group_name: ${{ vars.AKS_RESOURCE_GROUP }}
+      TF_VAR_acr_name: ${{ vars.ACR_NAME }}
+      TF_VAR_storage_account_name: ${{ vars.STORAGE_ACCOUNT_NAME }}
+      TF_VAR_aks_cluster_name: ${{ vars.AKS_CLUSTER_NAME }}
+      TF_VAR_aks_dns_prefix: ${{ vars.AKS_DNS_PREFIX }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Export Azure credentials for Terraform
+        run: |
+          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -input=false
+
+      - name: Terraform Apply
+        if: github.event_name == 'workflow_dispatch' && inputs.apply
+        run: terraform apply -auto-approve -input=false
